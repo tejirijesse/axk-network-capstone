@@ -150,8 +150,8 @@ You can run AXK Capstone in two ways:
 Runs the complete 5-role dashboard suite and public verification immediately using standard Python 3:
 
 ```bash
-git clone https://github.com/tejirijesse/axk-capstone.git
-cd axk-capstone
+git clone https://github.com/tejirijesse/axk-network-capstone.git
+cd axk-network-capstone
 make run    # or: python3 scripts/server.py
 ```
 
