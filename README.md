@@ -147,7 +147,8 @@ You can run AXK Capstone in two ways:
 
 ### Option 1: Instant Standalone Runner (Zero Dependencies)
 
-Runs the complete 5-role dashboard suite and public verification immediately using standard Python 3:
+Runs the complete 5-role dashboard suite and public verification using only the Python standard library.
+Prerequisites: Git, Make and Python 3.9 or newer. No Python packages, database server or environment file are required.
 
 ```bash
 git clone https://github.com/tejirijesse/axk-network-capstone.git
@@ -156,6 +157,9 @@ make run    # or: python3 scripts/server.py
 ```
 
 Open `http://localhost:8000/trade` in your browser. All 5 operational dashboards and public verification are live:
+
+Stop the server with `Ctrl+C`. Local demo data is stored in `scripts/axk.db`; delete that file while the server is
+stopped if you want to reset the standalone demo to its initial seeded state.
 
 | Dashboard / Surface | URL | Purpose |
 |---|---|---|
@@ -192,6 +196,10 @@ Run the full dual test suite (Smart Contracts + End-to-End Integration & Failure
 ```bash
 make test
 ```
+
+`make test-python` starts an isolated server on port 8765, uses a temporary database, runs the seven integration
+tests and shuts the server down automatically. It does not require `make run` to be active and does not modify the
+local demo database.
 
 - **Contract Tests (65 tests):** Soroban workspace unit tests covering 14 security guarantees across `axk_lot_registry`, `axk_escrow`, `axk_splitter`, and `axk_attestation`.
 - **Integration Tests (7 tests):** Comprehensive python test suite (`scripts/test_trade.py`) exercising the full 6-stage lifecycle, failure modes (inspection rejection, container seal tampering, invalid state transitions, 404 handling), and cryptographic digest verification.

@@ -5,7 +5,7 @@ is the product working. Talking points are cues, not lines to read.
 
 ## Before recording
 
-- [ ] `make run` in one terminal; open http://axk.localhost:8000/trade
+- [ ] `make run` in one terminal; open http://localhost:8000/trade
 - [ ] `make demo` in a second terminal **within the last few days** — the explorer only sees ~7 days of testnet events
 - [ ] If `make demo` deployed new contracts: `make contracts-config`, then reload the pages
 - [ ] Buyer wallet has at least 500,000 RWF (Buyer screen → *Top up* if not)

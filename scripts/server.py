@@ -34,10 +34,11 @@ FRAPPE_APP = BASE_DIR / "frappe_app" / "axk_capstone" / "axk_capstone"
 PUBLIC_DIR = FRAPPE_APP / "public"
 WWW_DIR = FRAPPE_APP / "www"
 TEMPLATES_DIR = FRAPPE_APP / "templates"
-DB_PATH = BASE_DIR / "scripts" / "axk.db"
+DB_PATH = Path(os.environ.get("AXK_DB_PATH", str(BASE_DIR / "scripts" / "axk.db")))
 STATE_ENV = BASE_DIR / "scripts" / ".demo-state.env"
 
 PORT = int(os.environ.get("PORT", 8000))
+HOST = os.environ.get("HOST", "127.0.0.1")
 EXPLORER = "https://stellar.expert/explorer/testnet"
 DECIMALS = 10**7
 
@@ -1270,7 +1271,7 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
 def run():
     init_db()
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), AXKHandler) as httpd:
+    with socketserver.TCPServer((HOST, PORT), AXKHandler) as httpd:
         print(f"\n========================================================")
         print(f"  🚀 AXK Capstone Server Running at http://localhost:{PORT}")
         print(f"========================================================")

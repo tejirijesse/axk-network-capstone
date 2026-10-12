@@ -13,13 +13,14 @@ Tests both happy-path and adversarial failure modes according to ~/.agent-doctri
 """
 
 import json
+import os
 import sys
 import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.environ.get("AXK_BASE_URL", "http://localhost:8000").rstrip("/")
 
 def post(endpoint, data):
     url = f"{BASE_URL}/api/method/axk_capstone.trade_api.{endpoint}"
