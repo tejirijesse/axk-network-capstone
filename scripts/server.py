@@ -15,11 +15,14 @@ Persists to local SQLite database: scripts/axk.db.
 """
 
 import hashlib
+import hmac
+import html
 import http.server
 import io
 import json
 import os
 import re
+import secrets
 import socketserver
 import sqlite3
 import subprocess
@@ -68,6 +71,18 @@ PERSONAS = {
     "member2": {"identity": "axk-member2", "name": "Member 2", "role": "Cooperative member", "address": "GCLEO73Z3CPY7TP6V3XRVBR2J7JNJNYLOPVOOMR5OVAPN7XVGDSJYVCA"},
     "issuer": {"identity": "axk-issuer", "name": "RWF test issuer", "role": "Token issuer", "address": "GC6C2LMTFAFPSSZFX62MA6AW5O7AAW3UKOWNTAZCLK75MTEQDBDQZKRH"},
 }
+
+# Local-demo accounts. These credentials protect the standalone evaluator build only;
+# production authentication is provided by Frappe users and role permissions.
+DEMO_USERS = {
+    "admin": {"password": "admin-demo-2026", "role": "admin", "name": "Demo Administrator"},
+    "cooperative": {"password": "coop-demo-2026", "role": "coop", "name": PERSONAS["coop"]["name"]},
+    "inspector": {"password": "inspect-demo-2026", "role": "inspect", "name": PERSONAS["inspector"]["name"]},
+    "logistics": {"password": "logistics-demo-2026", "role": "logistics", "name": PERSONAS["logistics"]["name"]},
+    "port": {"password": "port-demo-2026", "role": "port", "name": PERSONAS["port"]["name"]},
+    "buyer": {"password": "buyer-demo-2026", "role": "buy", "name": PERSONAS["buyer"]["name"]},
+}
+SESSIONS = {}
 
 def load_demo_state():
     state = {
@@ -517,6 +532,20 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
+        if path == "/login":
+            self.serve_login(query)
+            return
+
+        if path == "/logout":
+            token = self.session_token()
+            if token:
+                SESSIONS.pop(token, None)
+            self.send_response(302)
+            self.send_header("Set-Cookie", "axk_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+            self.send_header("Location", "/login")
+            self.end_headers()
+            return
+
         # Redirect root
         if path in ("", "/"):
             self.send_response(302)
@@ -534,11 +563,15 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
 
         # API calls
         if path.startswith("/api/method/"):
+            if not self.authorize_api(path):
+                return
             self.handle_api(path, query, post_data=None)
             return
 
         # Web pages
         if path in ("/trade", "/trade/coop", "/trade/inspect", "/trade/logistics", "/trade/port", "/trade/buy", "/trade/lot"):
+            if not self.authorize_page(path):
+                return
             self.serve_trade_page(path, query)
             return
 
@@ -575,11 +608,110 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 post_data = urllib.parse.parse_qs(post_body.decode("utf-8"))
 
+        if path == "/login":
+            self.handle_login(post_data)
+            return
+
         if path.startswith("/api/method/"):
+            if not self.authorize_api(path):
+                return
             self.handle_api(path, query, post_data)
             return
 
         self.send_error(404, "Endpoint not found")
+
+    def session_token(self):
+        cookies = self.headers.get("Cookie", "")
+        for item in cookies.split(";"):
+            name, _, value = item.strip().partition("=")
+            if name == "axk_session":
+                return value
+        return None
+
+    def current_user(self):
+        token = self.session_token()
+        return SESSIONS.get(token) if token else None
+
+    def authorize_page(self, path):
+        user = self.current_user()
+        if not user:
+            target = urllib.parse.quote(self.path, safe="")
+            self.send_response(302)
+            self.send_header("Location", f"/login?next={target}")
+            self.end_headers()
+            return False
+        required = {
+            "/trade/coop": "coop",
+            "/trade/inspect": "inspect",
+            "/trade/logistics": "logistics",
+            "/trade/port": "port",
+            "/trade/buy": "buy",
+        }.get(path)
+        if required and user["role"] not in (required, "admin"):
+            self.send_html("<h1>403 · Access denied</h1><p>This dashboard belongs to another AXK role. <a href='/trade'>Return to overview</a>.</p>", status=403)
+            return False
+        return True
+
+    def authorize_api(self, path):
+        method = path.replace("/api/method/", "").strip()
+        public_methods = {
+            "axk_capstone.trade_api.verify_lot",
+            "axk_capstone.api.live_chain",
+            "axk_capstone.api.ledger_overview",
+        }
+        if method in public_methods:
+            return True
+        user = self.current_user()
+        if not user:
+            self.send_json({"error": "Authentication required"}, status=401)
+            return False
+        required = {
+            "axk_capstone.trade_api.register_lot": "coop",
+            "axk_capstone.trade_api.inspect_lot": "inspect",
+            "axk_capstone.trade_api.fund_lot": "buy",
+            "axk_capstone.trade_api.dispatch_logistics": "logistics",
+            "axk_capstone.trade_api.receive_port": "port",
+            "axk_capstone.trade_api.confirm_delivery": "buy",
+            "axk_capstone.trade_api.top_up_buyer": "buy",
+        }.get(method)
+        if required and user["role"] not in (required, "admin"):
+            self.send_json({"error": f"The {required} role is required"}, status=403)
+            return False
+        return True
+
+    def handle_login(self, post_data):
+        def value(name):
+            item = (post_data or {}).get(name, "")
+            return item[0] if isinstance(item, list) else str(item)
+
+        username = value("username").strip().lower()
+        password = value("password")
+        account = DEMO_USERS.get(username)
+        if not account or not hmac.compare_digest(password, account["password"]):
+            self.serve_login({"error": ["Invalid username or password"]}, status=401)
+            return
+        token = secrets.token_urlsafe(32)
+        SESSIONS[token] = {"username": username, **account}
+        destination = value("next") or "/trade"
+        if not destination.startswith("/") or destination.startswith("//"):
+            destination = "/trade"
+        self.send_response(302)
+        self.send_header("Set-Cookie", f"axk_session={token}; Path=/; HttpOnly; SameSite=Lax")
+        self.send_header("Location", destination)
+        self.end_headers()
+
+    def serve_login(self, query, status=200):
+        if self.current_user():
+            self.send_response(302)
+            self.send_header("Location", "/trade")
+            self.end_headers()
+            return
+        next_path = (query.get("next") or ["/trade"])[0]
+        error = (query.get("error") or [""])[0]
+        safe_next = html.escape(next_path, quote=True)
+        error_html = f'<div class="login-error">{html.escape(error)}</div>' if error else ""
+        self.send_html(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · AXK Trade</title>
+<style>body{{margin:0;background:#f5f5f1;color:#1e2723;font:15px system-ui,-apple-system,sans-serif}}.login{{max-width:420px;margin:9vh auto;padding:36px;background:white;border:1px solid #dfe5e1;border-radius:14px;box-shadow:0 16px 50px #143c2b18}}.brand{{font-weight:750;color:#166350;font-size:18px}}h1{{margin:28px 0 8px;font-size:28px}}p{{color:#66716c;line-height:1.5}}label{{display:block;font-weight:650;margin:18px 0 6px}}input{{box-sizing:border-box;width:100%;padding:12px;border:1px solid #bcc8c2;border-radius:8px;font:inherit}}button{{width:100%;margin-top:22px;padding:12px;border:0;border-radius:8px;background:#166350;color:white;font:inherit;font-weight:700;cursor:pointer}}.login-error{{padding:10px;border-radius:7px;background:#fff0ef;color:#a52c26}}details{{margin-top:24px;color:#58655f}}code{{font-size:12px}}</style></head><body><main class="login"><div class="brand">AX · AXK Trade</div><h1>Sign in</h1><p>Use the account for your role to enter the protected trade workspace. Public verification remains available without an account.</p>{error_html}<form method="post" action="/login"><input type="hidden" name="next" value="{safe_next}"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required autofocus><label for="password">Password</label><input id="password" type="password" name="password" autocomplete="current-password" required><button type="submit">Sign in</button></form><details><summary>Demo accounts</summary><p><code>cooperative / coop-demo-2026</code><br><code>inspector / inspect-demo-2026</code><br><code>logistics / logistics-demo-2026</code><br><code>port / port-demo-2026</code><br><code>buyer / buyer-demo-2026</code><br><code>admin / admin-demo-2026</code></p></details><p><a href="/trace">Continue to public verification</a></p></main></body></html>''', status=status)
 
     def serve_file(self, file_path):
         mime = "text/plain"
@@ -620,6 +752,7 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def render_nav(self, active_tab):
+        user = self.current_user()
         nav_items = [
             ("overview", "/trade", "Overview"),
             ("coop", "/trade/coop", "Cooperative"),
@@ -632,9 +765,12 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
         ]
         tabs = []
         for key, href, label in nav_items:
+            if user and user["role"] != "admin" and key in {"coop", "inspect", "logistics", "port", "buy"} and key != user["role"]:
+                continue
             current = ' aria-current="page"' if key == active_tab else ''
             tabs.append(f'<a class="xt-tab" role="listitem" href="{href}" data-tab="{key}"{current}>{label}</a>')
         tabs_html = "\n      ".join(tabs)
+        account_html = f'<span class="xt-net">{user["name"]} · <a href="/logout">Sign out</a></span>' if user else ''
         return f'''<nav class="xt-nav" aria-label="AXK Trade">
   <div class="xt-nav-inner">
     <a class="xt-brand" href="/trade"><span class="xt-brand-mark" aria-hidden="true">AX</span><span>AXK Trade</span></a>
@@ -642,6 +778,7 @@ class AXKHandler(http.server.SimpleHTTPRequestHandler):
       {tabs_html}
     </div>
     <span class="xt-net" title="Transactions are signed on Stellar testnet"><i aria-hidden="true"></i>Stellar testnet · demo</span>
+    {account_html}
   </div>
 </nav>'''
 

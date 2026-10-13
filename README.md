@@ -161,6 +161,24 @@ Open `http://localhost:8000/trade` in your browser. All 5 operational dashboards
 Stop the server with `Ctrl+C`. Local demo data is stored in `scripts/axk.db`; delete that file while the server is
 stopped if you want to reset the standalone demo to its initial seeded state.
 
+#### Demo authentication
+
+The trade workspace requires a login and enforces role-specific page and API access. Public verification at
+`/trace` and the read-only chain explorer remain available without signing in.
+
+| Role | Username | Password |
+|---|---|---|
+| Administrator/evaluator | `admin` | `admin-demo-2026` |
+| Cooperative | `cooperative` | `coop-demo-2026` |
+| Inspector | `inspector` | `inspect-demo-2026` |
+| Logistics | `logistics` | `logistics-demo-2026` |
+| Port / Terminal | `port` | `port-demo-2026` |
+| Buyer | `buyer` | `buyer-demo-2026` |
+
+These are deliberately published local-demo credentials, not production accounts. Sessions use random HttpOnly,
+SameSite cookies and disappear when the server stops. The production Frappe deployment uses database-backed users,
+password hashing and role permissions.
+
 | Dashboard / Surface | URL | Purpose |
 |---|---|---|
 | **Overview** | `http://localhost:8000/trade` | 5-role custody flow & active trades overview |
@@ -197,17 +215,17 @@ Run the full dual test suite (Smart Contracts + End-to-End Integration & Failure
 make test
 ```
 
-`make test-python` starts an isolated server on port 8765, uses a temporary database, runs the seven integration
+`make test-python` starts an isolated server on port 8765, uses a temporary database, runs the eight integration
 tests and shuts the server down automatically. It does not require `make run` to be active and does not modify the
 local demo database.
 
 - **Contract Tests (65 tests):** Soroban workspace unit tests covering 14 security guarantees across `axk_lot_registry`, `axk_escrow`, `axk_splitter`, and `axk_attestation`.
-- **Integration Tests (7 tests):** Comprehensive python test suite (`scripts/test_trade.py`) exercising the full 6-stage lifecycle, failure modes (inspection rejection, container seal tampering, invalid state transitions, 404 handling), and cryptographic digest verification.
+- **Integration Tests (8 tests):** Comprehensive python test suite (`scripts/test_trade.py`) exercising authentication and role isolation, the full 6-stage lifecycle, failure modes (inspection rejection, container seal tampering, invalid state transitions, 404 handling), and cryptographic digest verification.
 
 You can also run them independently:
 ```bash
 make test-contracts    # Cargo test suite (65 tests)
-make test-python       # Python integration & failure-mode suite (7 tests)
+make test-python       # Python authentication, integration & failure-mode suite (8 tests)
 ```
 
 ---
@@ -231,9 +249,9 @@ make test-python       # Python integration & failure-mode suite (7 tests)
 | **Escrow** | 27 | Inspection gating, buyer authorization, fixed payee, refund timeouts | `cargo test -p axk-escrow` |
 | **Splitter** | 12 | Exact 40/40/20 division, rounding remainder protection, member payout | `cargo test -p axk-splitter` |
 | **Attestation** | 8 | Immutable digests, ledger anchor, role-based attester gating | `cargo test -p axk-attestation` |
-| **End-to-End Integration** | 7 | 6-stage lifecycle, seal tampering, invalid transitions, route rendering | `python3 scripts/test_trade.py` |
+| **End-to-End Integration** | 8 | Authentication, role isolation, 6-stage lifecycle, seal tampering, invalid transitions, route rendering | `make test-python` |
 | **Stellar Testnet Demo** | 10 steps | Live on-chain deployment, Friendbot funding, live tx hashes | `make demo` |
-| **Full Combined Suite** | **72 tests** | All contracts + integration & failure-mode test paths | `make test` |
+| **Full Combined Suite** | **73 tests** | All contracts + authentication, integration & failure-mode test paths | `make test` |
 
 The end-to-end runs and the exact contract error codes observed on-chain are recorded in
 [docs/deployments.md](docs/deployments.md).

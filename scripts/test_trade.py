@@ -13,6 +13,7 @@ Tests both happy-path and adversarial failure modes according to ~/.agent-doctri
 """
 
 import json
+import http.cookiejar
 import os
 import sys
 import unittest
@@ -21,6 +22,15 @@ import urllib.parse
 import urllib.request
 
 BASE_URL = os.environ.get("AXK_BASE_URL", "http://localhost:8000").rstrip("/")
+COOKIE_JAR = http.cookiejar.CookieJar()
+OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
+
+
+def login(username="admin", password="admin-demo-2026"):
+    payload = urllib.parse.urlencode({"username": username, "password": password}).encode("utf-8")
+    req = urllib.request.Request(f"{BASE_URL}/login", data=payload)
+    with OPENER.open(req) as response:
+        return response.status
 
 def post(endpoint, data):
     url = f"{BASE_URL}/api/method/axk_capstone.trade_api.{endpoint}"
@@ -30,7 +40,7 @@ def post(endpoint, data):
         headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with OPENER.open(req) as resp:
             body = resp.read().decode("utf-8")
             return resp.status, json.loads(body).get("message", {})
     except urllib.error.HTTPError as e:
@@ -45,7 +55,7 @@ def get(endpoint, params=None):
     url = f"{BASE_URL}/api/method/axk_capstone.trade_api.{endpoint}{query}"
     req = urllib.request.Request(url)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with OPENER.open(req) as resp:
             body = resp.read().decode("utf-8")
             return resp.status, json.loads(body).get("message", {})
     except urllib.error.HTTPError as e:
@@ -58,11 +68,32 @@ def get(endpoint, params=None):
 def get_html(path):
     url = f"{BASE_URL}{path}"
     req = urllib.request.Request(url)
-    with urllib.request.urlopen(req) as resp:
+    with OPENER.open(req) as resp:
         return resp.status, resp.read().decode("utf-8")
 
 
 class TestAXKEndToEnd(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        login()
+
+    def test_00_authentication_guards(self):
+        anonymous = urllib.request.build_opener()
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            anonymous.open(f"{BASE_URL}/api/method/axk_capstone.trade_api.overview")
+        self.assertEqual(caught.exception.code, 401)
+
+        with anonymous.open(f"{BASE_URL}/trade") as response:
+            self.assertIn("/login", response.geturl())
+
+        role_jar = http.cookiejar.CookieJar()
+        role_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(role_jar))
+        payload = urllib.parse.urlencode({"username": "cooperative", "password": "coop-demo-2026"}).encode("utf-8")
+        role_opener.open(urllib.request.Request(f"{BASE_URL}/login", data=payload))
+        with self.assertRaises(urllib.error.HTTPError) as forbidden:
+            role_opener.open(f"{BASE_URL}/trade/inspect")
+        self.assertEqual(forbidden.exception.code, 403)
 
     def test_01_overview_and_personas(self):
         status, data = get("overview")

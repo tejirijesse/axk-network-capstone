@@ -42,6 +42,10 @@ others.
 
 ## Application controls
 
+- **Standalone authentication.** The local evaluator build requires a role account for `/trade/*` and
+  non-public APIs. Random session tokens are stored only in server memory and sent in HttpOnly,
+  SameSite cookies. Each write action is restricted to its matching role; the evaluator account may
+  exercise every role. `/trace` and read-only chain data remain public by design.
 - **Who may sign.** Every write endpoint calls `_guard()`: a signed-in System Manager, or demo mode
   (`axk_demo_mode: 1` in site config) **and** a loopback request. Tested: `127.0.0.1` allowed;
   `192.168.1.40` and `10.0.0.5` refused; loopback with demo mode off refused.
@@ -72,3 +76,6 @@ others.
 - **Event history is short.** Soroban RPC keeps about a week of events; long-term history needs an
   indexer.
 - **Demo mode is for demonstration only.** It must be off (`axk_demo_mode: 0`) on any shared host.
+- **Standalone credentials are public demo credentials.** They provide role separation for a local
+  demonstration, not production identity security. Production uses Frappe password hashing,
+  database-backed sessions, HTTPS and administrator-managed role assignments.

@@ -16,7 +16,7 @@ toolchain:       ## install Rust, the wasm target and stellar-cli (macOS, Homebr
 	rustup default stable
 	rustup target add wasm32v1-none
 
-test: test-contracts test-python ## run both contract tests (65) and isolated integration tests (7)
+test: test-contracts test-python ## run both contract tests (65) and isolated integration tests (8)
 
 test-contracts:  ## run all 65 smart contract unit tests
 	cd contracts && cargo test
